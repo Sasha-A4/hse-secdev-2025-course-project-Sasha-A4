@@ -3,11 +3,14 @@ import uuid
 from collections import defaultdict, deque
 from typing import List
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from . import features
+from .file_upload import generate_safe_filename, save_file, validate_file
 from .models import Feature, FeatureCreate, VoteRequest
+from .security import safe_log_error, sanitize_error_detail
 
 app = FastAPI(title="SecDev Course App", version="0.3.0")
 
@@ -90,15 +93,51 @@ async def api_error_handler(request: Request, exc: ApiError):
         "rate_limited": "Too Many Requests",
         "http_error": "HTTP Error",
     }
+    correlation_id = getattr(request.state, "correlation_id", str(uuid.uuid4()))
+    # Маскируем детали ошибки перед отправкой клиенту
+    safe_detail = sanitize_error_detail(exc.message)
+    # Логируем безопасно
+    safe_log_error(
+        f"API Error: {exc.code}",
+        correlation_id,
+        exc.message,
+    )
     problem = _build_problem(
         request,
         status=exc.status,
         title=title_map.get(exc.code, "Bad Request"),
-        detail=exc.message,
+        detail=safe_detail,
         type_=f"https://example.com/problems/{exc.code}",
     )
     return JSONResponse(
         status_code=exc.status,
+        content=problem,
+        headers={
+            "Content-Type": "application/problem+json",
+            "X-Correlation-ID": problem["correlation_id"],
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Обработчик ошибок валидации Pydantic в формате RFC 7807"""
+    correlation_id = getattr(request.state, "correlation_id", str(uuid.uuid4()))
+    # Формируем сообщение об ошибке из деталей валидации
+    errors = exc.errors()
+    error_messages = [f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in errors]
+    detail = "; ".join(error_messages)
+    safe_detail = sanitize_error_detail(detail)
+    safe_log_error("Validation error", correlation_id, detail)
+    problem = _build_problem(
+        request,
+        status=422,
+        title="Validation Error",
+        detail=safe_detail,
+        type_="https://example.com/problems/validation_error",
+    )
+    return JSONResponse(
+        status_code=422,
         content=problem,
         headers={
             "Content-Type": "application/problem+json",
@@ -129,6 +168,10 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    correlation_id = getattr(request.state, "correlation_id", str(uuid.uuid4()))
+    # Логируем исключение безопасно (без стека и чувствительных данных)
+    error_msg = str(exc) if exc else "Unknown error"
+    safe_log_error("Unhandled exception", correlation_id, error_msg)
     problem = _build_problem(
         request,
         status=500,
@@ -214,6 +257,46 @@ def vote_feature(feature_id: int, vote: VoteRequest):
     if feature is None:
         raise ApiError(code="not_found", message="feature not found", status=404)
     return feature
+
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Безопасная загрузка файла с проверкой magic bytes, лимитов и UUID именами"""
+    # Чтение файла с лимитом размера
+    file_content = await file.read()
+    if len(file_content) == 0:
+        raise ApiError(
+            code="validation_error",
+            message="File is empty",
+            status=422,
+        )
+
+    # Валидация файла
+    is_valid, error_msg = validate_file(file_content, file.filename or "unknown")
+    if not is_valid:
+        raise ApiError(
+            code="validation_error",
+            message=error_msg or "File validation failed",
+            status=422,
+        )
+
+    try:
+        # Генерация безопасного имени
+        safe_filename = generate_safe_filename(file.filename or "file")
+        # Сохранение файла
+        save_file(file_content, safe_filename)
+
+        return {
+            "filename": safe_filename,
+            "size": len(file_content),
+            "message": "File uploaded successfully",
+        }
+    except ValueError as e:
+        raise ApiError(
+            code="validation_error",
+            message=str(e),
+            status=422,
+        )
 
 
 @app.get("/")
