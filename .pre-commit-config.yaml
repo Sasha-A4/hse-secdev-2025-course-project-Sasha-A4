@@ -21,3 +21,10 @@ repos:
     hooks:
       - id: ruff
         args: ["--fix"]
+  - repo: local
+    hooks:
+      - id: block-main-commits
+        name: "Запрет коммитов в main"
+        entry: bash -c 'branch=$(git rev-parse --abbrev-ref HEAD); if [ "$branch" = "main" ]; then echo "Прямые коммиты в main запрещены!"; exit 1; fi'
+        language: system
+        stages: [commit, push]
