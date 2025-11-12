@@ -30,12 +30,26 @@ pytest -q
 Badge добавится автоматически после загрузки шаблона в GitHub.
 
 ## Контейнеры
+### Сборка образа
 ```bash
-docker build -t secdev-app .
-docker run --rm -p 8000:8000 secdev-app
-# или
+docker build -t secdev-course/app:latest .
+```
+
+### Проверка оптимизации образа
+```bash
+docker history secdev-course/app:latest
+docker images secdev-course/app:latest
+```
+
+### Локальный запуск стека
+```bash
 docker compose up --build
 ```
+После запуска убедитесь, что сервисы `app`, `postgres`, `redis` в состоянии `healthy`:
+```bash
+docker compose ps
+```
+
 
 ## Эндпойнты
 - `GET /health` → `{"status": "ok"}`

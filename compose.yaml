@@ -1,8 +1,69 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: runtime
+    image: secdev-course/app:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      UVICORN_HOST: 0.0.0.0
+      UVICORN_PORT: "8000"
+      DATABASE_URL: postgresql://secdev:secdev@postgres:5432/secdev
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    volumes:
+      - uploads-data:/app/uploads
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./docker/seccomp/app-seccomp.json
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()\"",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
     environment:
-      - PYTHONUNBUFFERED=1
-    profiles: ["dev"]
+      POSTGRES_USER: secdev
+      POSTGRES_PASSWORD: secdev
+      POSTGRES_DB: secdev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secdev -d secdev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  uploads-data:
+  postgres-data:
+  redis-data:
