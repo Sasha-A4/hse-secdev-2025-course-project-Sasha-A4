@@ -1,0 +1,36 @@
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": [
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": [
+        "SCMP_ARCH_ARM",
+        "SCMP_ARCH_ARM64"
+      ]
+    }
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "add_key",
+        "keyctl",
+        "request_key",
+        "bpf",
+        "unshare",
+        "mount",
+        "umount2",
+        "pivot_root",
+        "kexec_file_load"
+      ],
+      "action": "SCMP_ACT_ERRNO"
+    }
+  ]
+}
+
