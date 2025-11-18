@@ -12,6 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +27,25 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint & Format
+        timeout-minutes: 5
         run: |
           ruff check --output-format=github .
           black --check .
           isort --check-only .
 
       - name: Tests
-        run: pytest -q
+        timeout-minutes: 10
+        run: |
+          mkdir -p reports
+          pytest --junitxml=reports/junit.xml -q
+
+      - name: Upload test report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-report
+          path: reports/
 
       - name: Pre-commit (all files)
+        timeout-minutes: 10
         run: pre-commit run --all-files
