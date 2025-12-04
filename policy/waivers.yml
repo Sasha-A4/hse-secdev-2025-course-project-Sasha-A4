@@ -1,0 +1,37 @@
+# Policy for vulnerability waivers
+# See: project/69_sbom-vuln-mgmt.md for guidelines
+#
+# Structure:
+# - vulnerability_id: CVE identifier or vulnerability ID
+# - package: package name and version
+# - severity: Critical/High/Medium/Low
+# - reason: justification for waiver
+# - reviewed_by: person/team who approved
+# - reviewed_at: date of review
+# - review_due: date when waiver should be re-evaluated
+# - issue_pr: link to issue or PR tracking this
+# - mitigation: any workarounds or mitigations in place
+
+waivers:
+  # Example waiver structure (uncomment and fill when needed):
+  # - vulnerability_id: "CVE-YYYY-XXXXX"
+  #   package: "package-name@version"
+  #   severity: "High"
+  #   reason: |
+  #     Brief explanation why this vulnerability cannot be fixed immediately.
+  #     - Dependency is required by core functionality
+  #     - No patched version available yet
+  #     - Risk is mitigated by [explain mitigation]
+  #   reviewed_by: "team-name"
+  #   reviewed_at: "2025-12-03"
+  #   review_due: "2026-01-03"
+  #   issue_pr: "https://github.com/org/repo/issues/123"
+  #   mitigation: |
+  #     - Network isolation
+  #     - Input validation
+  #     - Monitoring
+
+  # Placeholder: No active waivers at this time
+  # When vulnerabilities are found, either:
+  # 1. Fix them by updating dependencies (preferred)
+  # 2. Document them here with proper justification
