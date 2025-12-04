@@ -47,4 +47,3 @@ These artifacts can be used for:
 - Compliance reporting
 - Dependency tracking
 - Vulnerability management (see `policy/waivers.yml`)
-

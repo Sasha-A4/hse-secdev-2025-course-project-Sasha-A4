@@ -24,7 +24,7 @@ jobs:
   sbom-sca:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -145,4 +145,3 @@ jobs:
           name: evidence-p09
           path: EVIDENCE/P09/
           retention-days: 30
-

@@ -35,4 +35,3 @@ waivers:
   # When vulnerabilities are found, either:
   # 1. Fix them by updating dependencies (preferred)
   # 2. Document them here with proper justification
-
