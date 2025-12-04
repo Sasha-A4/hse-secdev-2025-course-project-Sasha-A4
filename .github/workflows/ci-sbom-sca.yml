@@ -33,14 +33,21 @@ jobs:
         run: mkdir -p EVIDENCE/P09
 
       - name: Generate SBOM with Syft
-        # Using latest tag; for production, pin to specific version after verification
-        # Check available versions at: https://hub.docker.com/r/anchore/syft/tags
         run: |
           docker run --rm \
             -v ${{ github.workspace }}:/work \
             -w /work \
             anchore/syft:latest \
             packages dir:. -o cyclonedx-json > EVIDENCE/P09/sbom.json
+        continue-on-error: false
+
+      - name: Verify SBOM was generated
+        run: |
+          if [ ! -f EVIDENCE/P09/sbom.json ]; then
+            echo "Error: SBOM file was not generated"
+            exit 1
+          fi
+          echo "SBOM file size: $(wc -c < EVIDENCE/P09/sbom.json) bytes"
 
       - name: Install jq
         run: |
@@ -51,9 +58,9 @@ jobs:
           docker run --rm \
             -v ${{ github.workspace }}:/work \
             -w /work \
-            anchore/grype:v0.78.0 \
+            anchore/grype:latest \
             sbom:/work/EVIDENCE/P09/sbom.json \
-            -o json > EVIDENCE/P09/sca_report.json || true
+            -o json > EVIDENCE/P09/sca_report.json || echo "{}" > EVIDENCE/P09/sca_report.json
 
       - name: Generate SCA Summary
         run: |
@@ -63,46 +70,50 @@ jobs:
           echo "Commit: ${{ github.sha }}" >> EVIDENCE/P09/sca_summary.md
           echo "Workflow run: ${{ github.run_id }}" >> EVIDENCE/P09/sca_summary.md
           echo "" >> EVIDENCE/P09/sca_summary.md
-          
-          if [ -f EVIDENCE/P09/sca_report.json ]; then
+
+          if [ -f EVIDENCE/P09/sca_report.json ] && [ -s EVIDENCE/P09/sca_report.json ]; then
             echo "## Vulnerability Summary by Severity" >> EVIDENCE/P09/sca_summary.md
             echo "" >> EVIDENCE/P09/sca_summary.md
-            
-            # Count vulnerabilities by severity using jq
+
             if command -v jq &> /dev/null; then
-              echo "| Severity | Count |" >> EVIDENCE/P09/sca_summary.md
-              echo "|----------|-------|" >> EVIDENCE/P09/sca_summary.md
-              
-              CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
-              HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
-              MEDIUM=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
-              LOW=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
-              NEGLIGIBLE=$(jq '[.matches[] | select(.vulnerability.severity == "Negligible")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
-              UNKNOWN=$(jq '[.matches[] | select(.vulnerability.severity == "Unknown")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
-              
-              echo "| Critical | $CRITICAL |" >> EVIDENCE/P09/sca_summary.md
-              echo "| High | $HIGH |" >> EVIDENCE/P09/sca_summary.md
-              echo "| Medium | $MEDIUM |" >> EVIDENCE/P09/sca_summary.md
-              echo "| Low | $LOW |" >> EVIDENCE/P09/sca_summary.md
-              echo "| Negligible | $NEGLIGIBLE |" >> EVIDENCE/P09/sca_summary.md
-              echo "| Unknown | $UNKNOWN |" >> EVIDENCE/P09/sca_summary.md
-              echo "" >> EVIDENCE/P09/sca_summary.md
-              
-              TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW + NEGLIGIBLE + UNKNOWN))
-              echo "**Total vulnerabilities found: $TOTAL**" >> EVIDENCE/P09/sca_summary.md
-              echo "" >> EVIDENCE/P09/sca_summary.md
-              
-              # List Critical and High vulnerabilities
-              if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
-                echo "## Critical and High Severity Vulnerabilities" >> EVIDENCE/P09/sca_summary.md
+              # Check if report has matches field
+              if jq -e '.matches' EVIDENCE/P09/sca_report.json > /dev/null 2>&1; then
+                echo "| Severity | Count |" >> EVIDENCE/P09/sca_summary.md
+                echo "|----------|-------|" >> EVIDENCE/P09/sca_summary.md
+
+                CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
+                HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
+                MEDIUM=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
+                LOW=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
+                NEGLIGIBLE=$(jq '[.matches[] | select(.vulnerability.severity == "Negligible")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
+                UNKNOWN=$(jq '[.matches[] | select(.vulnerability.severity == "Unknown")] | length' EVIDENCE/P09/sca_report.json 2>/dev/null || echo "0")
+
+                echo "| Critical | $CRITICAL |" >> EVIDENCE/P09/sca_summary.md
+                echo "| High | $HIGH |" >> EVIDENCE/P09/sca_summary.md
+                echo "| Medium | $MEDIUM |" >> EVIDENCE/P09/sca_summary.md
+                echo "| Low | $LOW |" >> EVIDENCE/P09/sca_summary.md
+                echo "| Negligible | $NEGLIGIBLE |" >> EVIDENCE/P09/sca_summary.md
+                echo "| Unknown | $UNKNOWN |" >> EVIDENCE/P09/sca_summary.md
                 echo "" >> EVIDENCE/P09/sca_summary.md
-                jq -r '.matches[] | select(.vulnerability.severity == "Critical" or .vulnerability.severity == "High") | "- **\(.vulnerability.id)**: \(.artifact.name)@\(.artifact.version) - \(.vulnerability.description // "No description")"' EVIDENCE/P09/sca_report.json 2>/dev/null | head -20 >> EVIDENCE/P09/sca_summary.md || true
+
+                TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW + NEGLIGIBLE + UNKNOWN))
+                echo "**Total vulnerabilities found: $TOTAL**" >> EVIDENCE/P09/sca_summary.md
+                echo "" >> EVIDENCE/P09/sca_summary.md
+
+                if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+                  echo "## Critical and High Severity Vulnerabilities" >> EVIDENCE/P09/sca_summary.md
+                  echo "" >> EVIDENCE/P09/sca_summary.md
+                  jq -r '.matches[] | select(.vulnerability.severity == "Critical" or .vulnerability.severity == "High") | "- **\(.vulnerability.id)**: \(.artifact.name)@\(.artifact.version) - \(.vulnerability.description // "No description")"' EVIDENCE/P09/sca_report.json 2>/dev/null | head -20 >> EVIDENCE/P09/sca_summary.md || true
+                  echo "" >> EVIDENCE/P09/sca_summary.md
+                fi
+              else
+                echo "No vulnerabilities found or invalid report format." >> EVIDENCE/P09/sca_summary.md
                 echo "" >> EVIDENCE/P09/sca_summary.md
               fi
             else
               echo "jq not available, skipping detailed analysis" >> EVIDENCE/P09/sca_summary.md
             fi
-            
+
             echo "## Next Steps" >> EVIDENCE/P09/sca_summary.md
             echo "" >> EVIDENCE/P09/sca_summary.md
             echo "1. Review Critical and High severity vulnerabilities" >> EVIDENCE/P09/sca_summary.md
@@ -111,7 +122,7 @@ jobs:
             echo "" >> EVIDENCE/P09/sca_summary.md
             echo "Full report available in: \`EVIDENCE/P09/sca_report.json\`" >> EVIDENCE/P09/sca_summary.md
           else
-            echo "SCA report not generated. Check workflow logs for errors." >> EVIDENCE/P09/sca_summary.md
+            echo "SCA report not generated or is empty. Check workflow logs for errors." >> EVIDENCE/P09/sca_summary.md
           fi
 
       - name: Upload SBOM artifact
@@ -121,6 +132,7 @@ jobs:
           name: sbom-cyclonedx
           path: EVIDENCE/P09/sbom.json
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Upload SCA report artifact
         if: always()
@@ -129,6 +141,7 @@ jobs:
           name: sca-report
           path: EVIDENCE/P09/sca_report.json
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Upload SCA summary artifact
         if: always()
@@ -137,6 +150,7 @@ jobs:
           name: sca-summary
           path: EVIDENCE/P09/sca_summary.md
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Upload all evidence
         if: always()
@@ -145,3 +159,4 @@ jobs:
           name: evidence-p09
           path: EVIDENCE/P09/
           retention-days: 30
+          if-no-files-found: warn
