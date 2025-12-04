@@ -33,12 +33,12 @@ jobs:
         run: mkdir -p EVIDENCE/P09
 
       - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
-        with:
-          path: "."
-          format: "cyclonedx-json"
-          output: "EVIDENCE/P09/sbom.json"
-          syft-version: "v0.120.0"
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            anchore/syft:v0.108.0 \
+            packages dir:. -o cyclonedx-json > EVIDENCE/P09/sbom.json
 
       - name: Install jq
         run: |
