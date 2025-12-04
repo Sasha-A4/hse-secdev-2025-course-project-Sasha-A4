@@ -33,11 +33,13 @@ jobs:
         run: mkdir -p EVIDENCE/P09
 
       - name: Generate SBOM with Syft
+        # Using latest tag; for production, pin to specific version after verification
+        # Check available versions at: https://hub.docker.com/r/anchore/syft/tags
         run: |
           docker run --rm \
             -v ${{ github.workspace }}:/work \
             -w /work \
-            anchore/syft:v0.108.0 \
+            anchore/syft:latest \
             packages dir:. -o cyclonedx-json > EVIDENCE/P09/sbom.json
 
       - name: Install jq
