@@ -25,8 +25,8 @@ rules:
             $QUERY = ...
       - pattern-either:
           - pattern: f'SELECT ... $VAR ...'
-          - pattern: 'SELECT ... ' + $VAR + ' ...'
-          - pattern: 'SELECT ... %s ...' % $VAR
+          - pattern: "\"SELECT ... \" + $VAR"
+          - pattern: "\"SELECT ... %s ...\" % $VAR"
     message: "Potential SQL injection. Use parameterized queries or ORM."
     languages: [python]
     severity: WARNING
