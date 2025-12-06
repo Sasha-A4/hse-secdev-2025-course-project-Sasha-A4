@@ -1,0 +1,29 @@
+title = "Gitleaks config for SecDev Course Project"
+
+# Allowlist patterns for false positives
+[allowlist]
+description = "Allowlist for known false positives and test data"
+
+paths = [
+  '''\.github/workflows/.*''',  # CI workflows may contain example secrets
+  '''tests/.*''',                # Test files may contain synthetic data
+  '''docs/.*''',                # Documentation examples
+  '''README\.md''',             # Documentation
+  '''SECURITY\.md''',           # Security policy
+  '''\.gitkeep''',              # Git keep files
+  '''EVIDENCE/.*''',            # Evidence artifacts
+]
+
+# Rules configuration
+[extend]
+# Use default rules but allow customization
+useDefault = true
+
+# Example: exclude specific patterns if needed
+# [[rules]]
+# id = "generic-api-key"
+# description = "Generic API Key"
+# regex = '''(?i)(api[_-]?key|apikey)\s*[=:]\s*['"]([0-9a-zA-Z\-_]{20,})['"]'''
+# entropy = 3.5
+# secretGroup = 2
+# allowlist = { paths = ['''tests/.*'''] }

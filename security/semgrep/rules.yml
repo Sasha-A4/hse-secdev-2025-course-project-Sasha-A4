@@ -1,0 +1,32 @@
+rules:
+  # Custom rules for FastAPI application
+  - id: fastapi-unsafe-eval
+    pattern: eval(...)
+    message: "Use of eval() is dangerous and can lead to code injection"
+    languages: [python]
+    severity: ERROR
+
+  - id: fastapi-hardcoded-secrets
+    patterns:
+      - pattern-either:
+          - pattern: password\s*=\s*['"]...
+          - pattern: api_key\s*=\s*['"]...
+          - pattern: secret\s*=\s*['"]...
+      - pattern-not: password\s*=\s*['"]\s*['"]
+    message: "Hardcoded secrets detected. Use environment variables instead."
+    languages: [python]
+    severity: ERROR
+
+  - id: fastapi-sql-injection-risk
+    patterns:
+      - pattern-inside: |
+          def $FUNC(...):
+            ...
+            $QUERY = ...
+      - pattern-either:
+          - pattern: f'SELECT ... $VAR ...'
+          - pattern: "\"SELECT ... \" + $VAR"
+          - pattern: "\"SELECT ... %s ...\" % $VAR"
+    message: "Potential SQL injection. Use parameterized queries or ORM."
+    languages: [python]
+    severity: WARNING

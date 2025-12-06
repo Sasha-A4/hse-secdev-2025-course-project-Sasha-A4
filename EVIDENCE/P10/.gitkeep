@@ -1,0 +1,2 @@
+# This directory contains SAST and secrets scanning artifacts
+# Files: semgrep.sarif, gitleaks.json
