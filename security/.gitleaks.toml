@@ -27,4 +27,3 @@ useDefault = true
 # entropy = 3.5
 # secretGroup = 2
 # allowlist = { paths = ['''tests/.*'''] }
-
