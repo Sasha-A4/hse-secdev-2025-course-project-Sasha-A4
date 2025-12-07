@@ -1,0 +1,201 @@
+name: Security - DAST (ZAP Baseline)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/**'
+      - '**/*.py'
+      - '.github/workflows/ci-p11-dast.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '**/*.py'
+      - '.github/workflows/ci-p11-dast.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dast-zap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dast-zap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create EVIDENCE directory
+        run: mkdir -p EVIDENCE/P11
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Start application
+        run: |
+          uvicorn app.main:app --host 0.0.0.0 --port 8080 &
+          echo $! > /tmp/app.pid
+        env:
+          DATABASE_URL: "sqlite:///./test.db"
+          REDIS_URL: "redis://localhost:6379/0"
+
+      - name: Wait for application to be ready
+        run: |
+          echo "Waiting for application to start..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Application is ready!"
+              curl -v http://localhost:8080/health
+              exit 0
+            fi
+            echo "Attempt $i/30: waiting for application..."
+            sleep 2
+          done
+          echo "Application failed to start"
+          exit 1
+
+      - name: Run ZAP Baseline Scan
+        run: |
+          docker run --rm \
+            --network host \
+            -v ${{ github.workspace }}/EVIDENCE/P11:/zap/wrk/:rw \
+            -t owasp/zap2docker-stable:latest \
+            zap-baseline.py \
+            -t http://localhost:8080 \
+            -J \
+            -r zap_baseline.html \
+            -g gen.conf \
+            -I \
+            || true
+
+      - name: Check ZAP reports
+        run: |
+          if [ -f EVIDENCE/P11/zap_baseline.html ]; then
+            echo "ZAP HTML report generated"
+            ls -lh EVIDENCE/P11/zap_baseline.html
+          else
+            echo "Warning: ZAP HTML report not found"
+          fi
+          if [ -f EVIDENCE/P11/zap_baseline.json ]; then
+            echo "ZAP JSON report generated"
+            ls -lh EVIDENCE/P11/zap_baseline.json
+          else
+            echo "Warning: ZAP JSON report not found"
+          fi
+
+      - name: Generate DAST Summary
+        run: |
+          echo "# DAST (ZAP Baseline) Summary" > EVIDENCE/P11/dast_summary.md
+          echo "" >> EVIDENCE/P11/dast_summary.md
+          echo "Generated at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> EVIDENCE/P11/dast_summary.md
+          echo "Commit: ${{ github.sha }}" >> EVIDENCE/P11/dast_summary.md
+          echo "Workflow run: ${{ github.run_id }}" >> EVIDENCE/P11/dast_summary.md
+          echo "Target: http://localhost:8080/" >> EVIDENCE/P11/dast_summary.md
+          echo "" >> EVIDENCE/P11/dast_summary.md
+
+          if [ -f EVIDENCE/P11/zap_baseline.json ]; then
+            if command -v jq &> /dev/null; then
+              echo "## Alert Summary" >> EVIDENCE/P11/dast_summary.md
+              echo "" >> EVIDENCE/P11/dast_summary.md
+
+              HIGH=$(jq '[.[] | select(.risk == "High")] | length' EVIDENCE/P11/zap_baseline.json 2>/dev/null || echo "0")
+              MEDIUM=$(jq '[.[] | select(.risk == "Medium")] | length' EVIDENCE/P11/zap_baseline.json 2>/dev/null || echo "0")
+              LOW=$(jq '[.[] | select(.risk == "Low")] | length' EVIDENCE/P11/zap_baseline.json 2>/dev/null || echo "0")
+              INFORMATIONAL=$(jq '[.[] | select(.risk == "Informational")] | length' EVIDENCE/P11/zap_baseline.json 2>/dev/null || echo "0")
+
+              echo "| Risk Level | Count |" >> EVIDENCE/P11/dast_summary.md
+              echo "|-----------|-------|" >> EVIDENCE/P11/dast_summary.md
+              echo "| High | $HIGH |" >> EVIDENCE/P11/dast_summary.md
+              echo "| Medium | $MEDIUM |" >> EVIDENCE/P11/dast_summary.md
+              echo "| Low | $LOW |" >> EVIDENCE/P11/dast_summary.md
+              echo "| Informational | $INFORMATIONAL |" >> EVIDENCE/P11/dast_summary.md
+              echo "" >> EVIDENCE/P11/dast_summary.md
+
+              TOTAL=$((HIGH + MEDIUM + LOW + INFORMATIONAL))
+              echo "**Total alerts: $TOTAL**" >> EVIDENCE/P11/dast_summary.md
+              echo "" >> EVIDENCE/P11/dast_summary.md
+
+              if [ "$HIGH" -gt 0 ] || [ "$MEDIUM" -gt 0 ]; then
+                echo "## High and Medium Risk Alerts" >> EVIDENCE/P11/dast_summary.md
+                echo "" >> EVIDENCE/P11/dast_summary.md
+                jq -r '.[] | select(.risk == "High" or .risk == "Medium") | "- **\(.name)** (Risk: \(.risk), CWE: \(.cweid // "N/A")): \(.description // "No description")"' EVIDENCE/P11/zap_baseline.json 2>/dev/null | head -10 >> EVIDENCE/P11/dast_summary.md || true
+                echo "" >> EVIDENCE/P11/dast_summary.md
+              fi
+            else
+              echo "jq not available, skipping detailed analysis" >> EVIDENCE/P11/dast_summary.md
+            fi
+          else
+            echo "ZAP JSON report not available for analysis." >> EVIDENCE/P11/dast_summary.md
+          fi
+
+          echo "## Next Steps" >> EVIDENCE/P11/dast_summary.md
+          echo "" >> EVIDENCE/P11/dast_summary.md
+          echo "1. Review High and Medium risk alerts" >> EVIDENCE/P11/dast_summary.md
+          echo "2. Fix critical security issues" >> EVIDENCE/P11/dast_summary.md
+          echo "3. Document accepted risks if applicable" >> EVIDENCE/P11/dast_summary.md
+          echo "" >> EVIDENCE/P11/dast_summary.md
+          echo "Full reports available in:" >> EVIDENCE/P11/dast_summary.md
+          echo "- \`EVIDENCE/P11/zap_baseline.html\` (human-readable)" >> EVIDENCE/P11/dast_summary.md
+          echo "- \`EVIDENCE/P11/zap_baseline.json\` (machine-readable)" >> EVIDENCE/P11/dast_summary.md
+
+      - name: Stop application
+        if: always()
+        run: |
+          if [ -f /tmp/app.pid ]; then
+            kill $(cat /tmp/app.pid) 2>/dev/null || true
+            rm /tmp/app.pid
+          fi
+          pkill -f "uvicorn app.main:app" || true
+
+      - name: Upload ZAP HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-html
+          path: EVIDENCE/P11/zap_baseline.html
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload ZAP JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-json
+          path: EVIDENCE/P11/zap_baseline.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload DAST summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-summary
+          path: EVIDENCE/P11/dast_summary.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload all evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-p11
+          path: EVIDENCE/P11/
+          retention-days: 30
+          if-no-files-found: warn
+
