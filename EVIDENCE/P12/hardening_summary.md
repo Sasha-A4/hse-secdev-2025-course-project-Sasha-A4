@@ -16,7 +16,7 @@
 
 #### ✅ Non-Root User
 - **Before**: Process runs as root
-- **After**: 
+- **After**:
   ```dockerfile
   RUN groupadd --system app && useradd --system --gid app --create-home appuser
   USER appuser
