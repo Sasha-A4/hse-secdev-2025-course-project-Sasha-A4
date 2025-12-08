@@ -1,0 +1,259 @@
+name: Security - IaC & Container (P12)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Dockerfile'
+      - 'iac/**'
+      - 'k8s/**'
+      - 'deploy/**'
+      - 'compose.yaml'
+      - '.github/workflows/ci-p12-iac-container.yml'
+      - 'security/**'
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'iac/**'
+      - 'k8s/**'
+      - 'deploy/**'
+      - 'compose.yaml'
+      - '.github/workflows/ci-p12-iac-container.yml'
+      - 'security/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iac-container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  iac-container-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create EVIDENCE directory
+        run: mkdir -p EVIDENCE/P12
+
+      - name: Build Docker image
+        run: |
+          docker build -t secdev-course/app:local -f Dockerfile --target runtime .
+
+      - name: Run Hadolint on Dockerfile
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            hadolint/hadolint:latest \
+            hadolint \
+            --config security/hadolint.yaml \
+            --format json \
+            Dockerfile > EVIDENCE/P12/hadolint_report.json || echo "[]" > EVIDENCE/P12/hadolint_report.json
+
+      - name: Verify Hadolint report
+        run: |
+          if [ -f EVIDENCE/P12/hadolint_report.json ]; then
+            echo "Hadolint report generated"
+            if command -v jq &> /dev/null; then
+              COUNT=$(jq 'length' EVIDENCE/P12/hadolint_report.json 2>/dev/null || echo "0")
+              echo "Findings count: $COUNT"
+            fi
+          else
+            echo "Warning: Hadolint report not found"
+          fi
+
+      - name: Run Checkov on IaC
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            bridgecrew/checkov:latest \
+            --directory /work/iac \
+            --directory /work \
+            --framework dockerfile docker_compose kubernetes \
+            --config-file /work/security/checkov.yaml \
+            --output json \
+            --output-file /work/EVIDENCE/P12/checkov_report.json \
+            --soft-fail || echo "{}" > EVIDENCE/P12/checkov_report.json
+
+      - name: Verify Checkov report
+        run: |
+          if [ -f EVIDENCE/P12/checkov_report.json ]; then
+            echo "Checkov report generated"
+            if command -v jq &> /dev/null; then
+              SUMMARY=$(jq '.summary' EVIDENCE/P12/checkov_report.json 2>/dev/null || echo "{}")
+              echo "Checkov summary: $SUMMARY"
+            fi
+          else
+            echo "Warning: Checkov report not found"
+          fi
+
+      - name: Run Trivy on Docker image
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${{ github.workspace }}/EVIDENCE/P12:/output \
+            aquasec/trivy:latest \
+            image \
+            --config security/trivy.yaml \
+            --format json \
+            --output /output/trivy_report.json \
+            --exit-code 0 \
+            secdev-course/app:local || echo "[]" > EVIDENCE/P12/trivy_report.json
+
+      - name: Verify Trivy report
+        run: |
+          if [ -f EVIDENCE/P12/trivy_report.json ]; then
+            echo "Trivy report generated"
+            if command -v jq &> /dev/null; then
+              VULNS=$(jq '.Results[]?.Vulnerabilities // [] | length' EVIDENCE/P12/trivy_report.json 2>/dev/null || echo "0")
+              echo "Vulnerabilities found: $VULNS"
+            fi
+          else
+            echo "Warning: Trivy report not found"
+          fi
+
+      - name: Install jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Generate Security Summary
+        run: |
+          echo "# IaC & Container Security Summary" > EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+          echo "Generated at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> EVIDENCE/P12/security_summary.md
+          echo "Commit: ${{ github.sha }}" >> EVIDENCE/P12/security_summary.md
+          echo "Workflow run: ${{ github.run_id }}" >> EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+
+          echo "## Hadolint (Dockerfile Linting)" >> EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+          if [ -f EVIDENCE/P12/hadolint_report.json ]; then
+            if command -v jq &> /dev/null; then
+              COUNT=$(jq 'length' EVIDENCE/P12/hadolint_report.json 2>/dev/null || echo "0")
+              echo "**Total findings: $COUNT**" >> EVIDENCE/P12/security_summary.md
+              echo "" >> EVIDENCE/P12/security_summary.md
+              if [ "$COUNT" -gt 0 ]; then
+                echo "### Key Findings" >> EVIDENCE/P12/security_summary.md
+                echo "" >> EVIDENCE/P12/security_summary.md
+                jq -r '.[] | "- **\(.code)**: \(.message) (Line \(.line))"' EVIDENCE/P12/hadolint_report.json 2>/dev/null | head -10 >> EVIDENCE/P12/security_summary.md || true
+                echo "" >> EVIDENCE/P12/security_summary.md
+              fi
+            fi
+          else
+            echo "Hadolint report not available." >> EVIDENCE/P12/security_summary.md
+          fi
+
+          echo "## Checkov (IaC Security)" >> EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+          if [ -f EVIDENCE/P12/checkov_report.json ]; then
+            if command -v jq &> /dev/null; then
+              FAILED=$(jq '.summary.failed' EVIDENCE/P12/checkov_report.json 2>/dev/null || echo "0")
+              PASSED=$(jq '.summary.passed' EVIDENCE/P12/checkov_report.json 2>/dev/null || echo "0")
+              echo "**Failed checks: $FAILED**" >> EVIDENCE/P12/security_summary.md
+              echo "**Passed checks: $PASSED**" >> EVIDENCE/P12/security_summary.md
+              echo "" >> EVIDENCE/P12/security_summary.md
+              if [ "$FAILED" -gt 0 ]; then
+                echo "### Failed Checks" >> EVIDENCE/P12/security_summary.md
+                echo "" >> EVIDENCE/P12/security_summary.md
+                jq -r '.results.failed_checks[]? | "- **\(.check_id)**: \(.check_name) (File: \(.file_path))"' EVIDENCE/P12/checkov_report.json 2>/dev/null | head -10 >> EVIDENCE/P12/security_summary.md || true
+                echo "" >> EVIDENCE/P12/security_summary.md
+              fi
+            fi
+          else
+            echo "Checkov report not available." >> EVIDENCE/P12/security_summary.md
+          fi
+
+          echo "## Trivy (Container Image Scanning)" >> EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+          if [ -f EVIDENCE/P12/trivy_report.json ]; then
+            if command -v jq &> /dev/null; then
+              CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' EVIDENCE/P12/trivy_report.json 2>/dev/null || echo "0")
+              HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' EVIDENCE/P12/trivy_report.json 2>/dev/null || echo "0")
+              MEDIUM=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length' EVIDENCE/P12/trivy_report.json 2>/dev/null || echo "0")
+              LOW=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "LOW")] | length' EVIDENCE/P12/trivy_report.json 2>/dev/null || echo "0")
+
+              echo "| Severity | Count |" >> EVIDENCE/P12/security_summary.md
+              echo "|----------|-------|" >> EVIDENCE/P12/security_summary.md
+              echo "| CRITICAL | $CRITICAL |" >> EVIDENCE/P12/security_summary.md
+              echo "| HIGH | $HIGH |" >> EVIDENCE/P12/security_summary.md
+              echo "| MEDIUM | $MEDIUM |" >> EVIDENCE/P12/security_summary.md
+              echo "| LOW | $LOW |" >> EVIDENCE/P12/security_summary.md
+              echo "" >> EVIDENCE/P12/security_summary.md
+
+              TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+              echo "**Total vulnerabilities: $TOTAL**" >> EVIDENCE/P12/security_summary.md
+              echo "" >> EVIDENCE/P12/security_summary.md
+
+              if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+                echo "### Critical and High Severity Vulnerabilities" >> EVIDENCE/P12/security_summary.md
+                echo "" >> EVIDENCE/P12/security_summary.md
+                jq -r '.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH") | "- **\(.VulnerabilityID)**: \(.Title) (Severity: \(.Severity), Package: \(.PkgName))"' EVIDENCE/P12/trivy_report.json 2>/dev/null | head -10 >> EVIDENCE/P12/security_summary.md || true
+                echo "" >> EVIDENCE/P12/security_summary.md
+              fi
+            fi
+          else
+            echo "Trivy report not available." >> EVIDENCE/P12/security_summary.md
+          fi
+
+          echo "## Next Steps" >> EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+          echo "1. Review Hadolint findings and fix Dockerfile issues" >> EVIDENCE/P12/security_summary.md
+          echo "2. Address Checkov IaC security issues" >> EVIDENCE/P12/security_summary.md
+          echo "3. Update base image and dependencies to fix Trivy findings" >> EVIDENCE/P12/security_summary.md
+          echo "4. Document accepted risks if applicable" >> EVIDENCE/P12/security_summary.md
+          echo "" >> EVIDENCE/P12/security_summary.md
+          echo "Full reports available in:" >> EVIDENCE/P12/security_summary.md
+          echo "- \`EVIDENCE/P12/hadolint_report.json\`" >> EVIDENCE/P12/security_summary.md
+          echo "- \`EVIDENCE/P12/checkov_report.json\`" >> EVIDENCE/P12/security_summary.md
+          echo "- \`EVIDENCE/P12/trivy_report.json\`" >> EVIDENCE/P12/security_summary.md
+
+      - name: Upload Hadolint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hadolint-report
+          path: EVIDENCE/P12/hadolint_report.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Checkov report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-report
+          path: EVIDENCE/P12/checkov_report.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: EVIDENCE/P12/trivy_report.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload security summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: EVIDENCE/P12/security_summary.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload all evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-p12
+          path: EVIDENCE/P12/
+          retention-days: 30
+          if-no-files-found: warn

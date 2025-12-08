@@ -1,0 +1,22 @@
+# Hadolint configuration for Dockerfile linting
+# See: https://github.com/hadolint/hadolint
+
+# Ignore specific rules if needed
+ignored:
+  # - DL3008  # Pin versions in apt get install
+  # - DL3009  # Delete the apt-get lists after installing something
+
+# Trusted registries (optional)
+# trustedRegistries:
+#   - docker.io
+#   - registry.example.com
+
+# Override severity for specific rules
+override:
+  error:
+    - DL3008  # Pin versions in apt get install
+    - DL3009  # Delete the apt-get lists after installing something
+  warning:
+    - DL3015  # Avoid additional packages by using --no-install-recommends
+  info:
+    - DL3007  # Using latest is prone to errors if the image will ever update
