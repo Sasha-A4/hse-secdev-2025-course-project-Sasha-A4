@@ -1,0 +1,32 @@
+# Trivy configuration for container image scanning
+# See: https://github.com/aquasecurity/trivy
+
+# Severity levels to report
+severity:
+  - UNKNOWN
+  - LOW
+  - MEDIUM
+  - HIGH
+  - CRITICAL
+
+# Exit code behavior
+exit-code: 0  # Don't fail CI on findings
+
+# Format
+format: json
+
+# Ignore unfixed vulnerabilities
+ignore-unfixed: false
+
+# Security checks
+security-checks:
+  - vuln
+  - config
+
+# Skip files/directories
+# skip-files:
+#   - /usr/lib/python3.11/site-packages/some-package
+
+# Skip database update (for faster scans in CI)
+skip-db-update: false
+

@@ -1,0 +1,3 @@
+# This directory contains IaC and container security artifacts
+# Files: hadolint_report.json, checkov_report.json, trivy_report.json
+

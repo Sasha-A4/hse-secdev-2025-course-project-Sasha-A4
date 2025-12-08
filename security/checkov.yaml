@@ -1,0 +1,30 @@
+# Checkov configuration for IaC security scanning
+# See: https://www.checkov.io/
+
+# Framework to scan
+framework:
+  - dockerfile
+  - docker_compose
+  - kubernetes
+
+# Skip checks (use sparingly, with justification)
+# skip-check:
+#   - CKV_DOCKER_2  # Ensure that HEALTHCHECK instructions have been added to container images
+#   - CKV_DOCKER_3  # Ensure that a user for the container has been created
+
+# Include/exclude paths
+# include:
+#   - iac/
+#   - k8s/
+# exclude:
+#   - iac/legacy/
+
+# Output format
+output: json
+
+# Soft fail (don't fail CI on findings)
+soft-fail: false
+
+# Minimum severity to report
+# minimum-severity: MEDIUM
+
