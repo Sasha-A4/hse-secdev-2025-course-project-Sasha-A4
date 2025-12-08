@@ -20,4 +20,3 @@ override:
     - DL3015  # Avoid additional packages by using --no-install-recommends
   info:
     - DL3007  # Using latest is prone to errors if the image will ever update
-

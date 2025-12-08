@@ -29,4 +29,3 @@ security-checks:
 
 # Skip database update (for faster scans in CI)
 skip-db-update: false
-

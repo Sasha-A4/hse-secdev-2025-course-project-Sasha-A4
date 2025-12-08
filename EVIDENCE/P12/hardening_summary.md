@@ -127,4 +127,3 @@ security_opt:
 - Consider pinning to more specific Python version (e.g., `python:3.11.9-slim`)
 - Regular base image updates via dependency scanning (Trivy)
 - Monitor and update Kubernetes manifests based on Checkov findings
-
